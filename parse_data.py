@@ -1,5 +1,9 @@
-import polars as pl
+import sys
+import os
 from pathlib import Path
+
+import numpy as np
+import polars as pl
 
 import matplotlib.pyplot as plt
 
@@ -29,9 +33,14 @@ def plot_values(df: pl.DataFrame, emitter: int, output_folder: str):
 
 
 if __name__ == "__main__":
-    import sys
 
     file = Path(sys.argv[1])
     df = load_window(file)
 
-    print(df)
+    
+
+    
+    
+        
+
+
