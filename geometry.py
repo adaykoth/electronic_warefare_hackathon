@@ -4,8 +4,7 @@ def sensor_direction_vector(azimuth, elevation):
     """
     Compute the unit direction vector in the sensor (plane) coordinate frame.
     
-    Assumptions:
-      - azimuth and elevation are given in radians.
+    Assumptions (angles in radians):
       - Sensor coordinate system:
             x = cos(elevation) * cos(azimuth)   (forward)
             y = cos(elevation) * sin(azimuth)   (to the right)
@@ -19,14 +18,15 @@ def sensor_direction_vector(azimuth, elevation):
 def rotation_matrix(yaw, pitch, roll):
     """
     Build a rotation matrix to transform a vector from the sensor's
-    coordinate frame to the global frame. The sensor's orientation is
-    given by Euler angles:
-      - yaw   (rotation about the global vertical, z-axis; 0 means north),
-      - pitch (rotation about the sensor's y-axis; with respect to the horizon),
-      - roll  (rotation about the sensor's x-axis).
+    coordinate frame to the global frame.
     
-    We use the convention:
-         R = R_z(yaw) * R_y(pitch) * R_x(roll)
+    The sensor's orientation is given by Euler angles (in radians):
+      - yaw   : rotation about the global z-axis (0 means north),
+      - pitch : rotation about the sensor's y-axis (positive for nose-up),
+      - roll  : rotation about the sensor's x-axis.
+    
+    We use the intrinsic rotation convention:
+         R = R_z(yaw) @ R_y(pitch) @ R_x(roll)
     """
     Rz = np.array([
         [np.cos(yaw), -np.sin(yaw), 0],
@@ -35,9 +35,9 @@ def rotation_matrix(yaw, pitch, roll):
     ])
     
     Ry = np.array([
-        [np.cos(pitch), 0, np.sin(pitch)],
+        [np.cos(pitch), 0, -np.sin(pitch)],
         [0, 1, 0],
-        [-np.sin(pitch), 0, np.cos(pitch)]
+        [np.sin(pitch), 0, np.cos(pitch)]
     ])
     
     Rx = np.array([
@@ -46,16 +46,13 @@ def rotation_matrix(yaw, pitch, roll):
         [0, np.sin(roll),  np.cos(roll)]
     ])
     
-    return Rz @ Rx @ Ry
+    return Rz @ Ry @ Rx
 
 def global_direction_vector(azimuth, elevation, sensor_yaw, sensor_pitch, sensor_roll):
     """
-    Compute the emitter direction vector in the global frame.
-    The sensor angles are assumed to be in degrees.
-    They are converted to radians before computing the vector.
+    Compute the sensor direction vector in global NEU coordinates.
     
-    Returns a unit vector in the global coordinate system 
-    with the convention [North, East, Up].
+    The result is in NEU format, i.e. [North, East, Up].
     """
     # Convert degrees to radians
     az = np.radians(azimuth)
@@ -68,6 +65,18 @@ def global_direction_vector(azimuth, elevation, sensor_yaw, sensor_pitch, sensor
     R = rotation_matrix(yaw, pitch, roll)
     return R @ d_sensor
 
+def sensor_direction_vector_enu(azimuth, elevation, sensor_yaw, sensor_pitch, sensor_roll):
+    """
+    Compute the sensor direction vector directly in ENU coordinates.
+    
+    (ENU = [East, North, Up]).  
+    We first compute the global vector in NEU (i.e. [North, East, Up])
+    and then swap the first two components.
+    """
+    d_neu = global_direction_vector(azimuth, elevation, sensor_yaw, sensor_pitch, sensor_roll)
+    # Convert NEU -> ENU by swapping the first two components.
+    return np.array([d_neu[1], d_neu[0], d_neu[2]])
+
 
 def lla_to_ecef(lat_rad, lon_rad, alt):
     """
@@ -76,7 +85,7 @@ def lla_to_ecef(lat_rad, lon_rad, alt):
     """
     # WGS84 parameters
     a = 6378137.0            # semi-major axis in meters
-    f = 1/298.257223563      # flattening
+    f = 1 / 298.257223563    # flattening
     e2 = f * (2 - f)         # eccentricity squared
     N = a / np.sqrt(1 - e2 * np.sin(lat_rad)**2)
     x = (N + alt) * np.cos(lat_rad) * np.cos(lon_rad)
@@ -110,7 +119,8 @@ def ecef_to_enu(x, y, z, lat_ref_rad, lon_ref_rad, alt_ref):
 
 def lla_to_enu(lat, lon, alt, lat_ref, lon_ref, alt_ref):
     """
-    Convert latitude, longitude (in degrees) and altitude (in meters) into local ENU coordinates.
+    Convert latitude, longitude (in degrees) and altitude (in meters)
+    into local ENU coordinates.
     The reference point is given by lat_ref, lon_ref (in degrees) and alt_ref.
     """
     # Convert degrees to radians
