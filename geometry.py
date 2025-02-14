@@ -1,11 +1,5 @@
 import numpy as np
 
-from pyproj import Transformer
-# Create a transformer from EPSG:4326 (lat/lon in degrees) to EPSG:4978 (ECEF)
-_transformer = Transformer.from_crs("epsg:4326", "epsg:4978", always_xy=True)
-
-from config import a, e_sq
-
 def sensor_direction_vector(azimuth, elevation):
     """
     Compute the unit direction vector in the sensor (plane) coordinate frame.
@@ -52,7 +46,7 @@ def rotation_matrix(yaw, pitch, roll):
         [0, np.sin(roll),  np.cos(roll)]
     ])
     
-    return Rz @ Ry @ Rx
+    return Rz @ Rx @ Ry
 
 def global_direction_vector(azimuth, elevation, sensor_yaw, sensor_pitch, sensor_roll):
     """
@@ -74,11 +68,6 @@ def global_direction_vector(azimuth, elevation, sensor_yaw, sensor_pitch, sensor
     R = rotation_matrix(yaw, pitch, roll)
     return R @ d_sensor
 
-# -----------------------------
-# 3. Coordinate Conversions
-# -----------------------------
-# We convert latitude, longitude, altitude (LLA) into a local tangent plane (ENU)
-# using a reference point. For this we first convert LLA to ECEF.
 
 def lla_to_ecef(lat_rad, lon_rad, alt):
     """
