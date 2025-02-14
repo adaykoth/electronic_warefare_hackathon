@@ -9,6 +9,12 @@ import plotly.graph_objects as go
 from geometry import lla_to_enu, global_direction_vector
 from parse_data import load_window
 
+def neu_to_enu(neu_vector):
+    """
+    Convert a vector from NEU ([North, East, Up]) to ENU ([East, North, Up]) coordinates.
+    """
+    # Swap the first two components: [N, E, U] -> [E, N, U]
+    return np.array([neu_vector[1], neu_vector[0], neu_vector[2]])
 
 def compute_global_vectors(df):
     """
@@ -27,18 +33,19 @@ def compute_global_vectors(df):
         gvx.append(d_global[0])
         gvy.append(d_global[1])
         gvz.append(d_global[2])
-    df["global_vector_x"] = gvx
-    df["global_vector_y"] = gvy
-    df["global_vector_z"] = gvz
+    df["global_vector_x"] = gvx  # North component
+    df["global_vector_y"] = gvy  # East component
+    df["global_vector_z"] = gvz  # Up component
     return df
-
 
 def plot_trajectories(df, ray_length=1000, ray_interval=1000):
     """
     Plot sensor and emitter trajectories (converted to local ENU coordinates)
-    along with sensor rays. The global vectors are in [North, East, Up], so
-    we swap the first two components to plot in an ENU frame [East, North, Up].
+    along with sensor rays.
 
+    The global direction vector is computed in the local [North, East, Up] frame.
+    To plot in an ENU frame ([East, North, Up]), we convert it using neu_to_enu.
+    
     Parameters:
       ray_length: length of each ray.
       ray_interval: only draw a ray every `ray_interval` points.
@@ -81,8 +88,7 @@ def plot_trajectories(df, ray_length=1000, ray_interval=1000):
     )
 
     # Build sensor rays.
-    # The global direction vector is in [North, East, Up]. Convert it to ENU:
-    # ENU = [global_vector_y, global_vector_x, global_vector_z]
+    # The global direction vector is in [North, East, Up]. We convert it to ENU.
     gvx = df["global_vector_x"].values  # North component
     gvy = df["global_vector_y"].values  # East component
     gvz = df["global_vector_z"].values  # Up component
@@ -90,8 +96,11 @@ def plot_trajectories(df, ray_length=1000, ray_interval=1000):
     ray_x, ray_y, ray_z = [], [], []
     for i in range(0, len(sensor_enu), ray_interval):
         start = sensor_enu[i]
+        # Convert the NEU vector to ENU.
+        neu_vector = np.array([gvx[i], gvy[i], gvz[i]])
+        enu_vector = neu_to_enu(neu_vector)
         # Compute ray endpoint in ENU.
-        ray_endpoint = start + ray_length * np.array([gvy[i], gvx[i], gvz[i]])
+        ray_endpoint = start + ray_length * enu_vector
         ray_x.extend([start[0], ray_endpoint[0], None])
         ray_y.extend([start[1], ray_endpoint[1], None])
         ray_z.extend([start[2], ray_endpoint[2], None])
@@ -117,11 +126,10 @@ def plot_trajectories(df, ray_length=1000, ray_interval=1000):
     )
     fig.show()    
 
-
 if __name__ == "__main__":
     file_path = Path(sys.argv[1])
     df_pl = load_window(file_path)
-    emitter = "Emitter1"
+    emitter = "Emitter2"
     df_pl = df_pl.filter(pl.col("emitter") == emitter).drop("emitter")
     columns = [
         'arrival_time', 'azimuth', 'elevation',
@@ -133,8 +141,9 @@ if __name__ == "__main__":
     df = df_pl.to_pandas()
     df.set_index("arrival_time", inplace=True)
 
+    # Compute the global direction vectors (in NEU).
     df = compute_global_vectors(df)
     print(df.head())
     
     # Adjust ray_length and ray_interval as needed.
-    plot_trajectories(df, ray_length=50000, ray_interval=100)
+    plot_trajectories(df, ray_length=50000, ray_interval=1000)
