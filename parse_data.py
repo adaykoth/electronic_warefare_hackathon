@@ -11,7 +11,7 @@ def load_window(file: Path) -> pl.DataFrame:
     df = pl.read_ipc(file)
     return df
 
-def plot_values(df: pl.DataFrame, emitter: int, output_folder: str):
+def plot_values(df: pl.DataFrame, emitter: str, output_folder: str):
     filtered_df = df.filter(df["emitter"] == emitter)
 
     for col in set(filtered_df.columns) - {"emitter", "arrival_time"}:
@@ -36,6 +36,11 @@ if __name__ == "__main__":
 
     file = Path(sys.argv[1])
     df = load_window(file)
+
+    print(df)
+
+    plot_values(df, "Emitter11", "output")
+
 
     
 
