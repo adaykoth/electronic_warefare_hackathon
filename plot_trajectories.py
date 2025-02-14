@@ -25,9 +25,9 @@ def plot_trajectories(df, ray_length=1000, ray_interval=1000):
       - ray_interval: only draw a ray every `ray_interval` points.
     """
     # Use the first sensor coordinate as the ENU reference point.
-    lat_ref = df["sensor_lat"].iloc[0]
-    lon_ref = df["sensor_lon"].iloc[0]
-    alt_ref = df["sensor_alt"].iloc[0]
+    lat_ref = df["emitter_lat"].iloc[0]
+    lon_ref = df["emitter_lon"].iloc[0]
+    alt_ref = df["emitter_alt"].iloc[0]
     
     sensor_east, sensor_north, sensor_up = [], [], []
     emitter_east, emitter_north, emitter_up = [], [], []
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     file_path = Path(sys.argv[1])
     df_pl = load_window(file_path)
     
-    emitter = "Emitter1"
+    emitter = "Emitter7"
     # Use Polars filtering (not pandas boolean indexing)
     df_pl = df_pl.filter(pl.col("emitter") == emitter).drop("emitter")
     
