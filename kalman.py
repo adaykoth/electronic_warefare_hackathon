@@ -9,41 +9,33 @@ import pandas as pd
 from filterpy.kalman import KalmanFilter as FilterPyKF
 
 class KalmanFilter:
-    def __init__(self, dt, min_measurement_dt, process_noise_std=1.0, meas_noise_std=10.0):
+    def __init__(self, min_measurement_dt, process_noise_std=0.1, meas_noise_std=5.0):
         """
         Initialize Kalman filter for emitter tracking using FilterPy.
         
         Parameters:
-            dt: float, nominal time step for prediction
-            min_measurement_dt: float, minimum time difference between measurements
+            min_measurement_dt: float, minimum time difference between measurements (seconds)
             process_noise_std: float, process noise standard deviation (m/s²)
             meas_noise_std: float, measurement noise standard deviation (m)
         """
         # Create FilterPy Kalman filter with 6 state variables and 3 measurements
         self.kf = FilterPyKF(dim_x=6, dim_z=3)
-        self.dt = dt
         self.min_measurement_dt = min_measurement_dt
         
-        # Initialize state transition matrix (constant velocity model)
+        # Initialize state transition matrix (will be updated with actual dt)
         self.kf.F = np.eye(6)
-        self.kf.F[0:3, 3:6] = dt * np.eye(3)
         
         # Initialize measurement matrix (we only measure position)
         self.kf.H = np.hstack([np.eye(3), np.zeros((3, 3))])
         
-        # Initialize covariance matrices
+        # Initialize covariance matrices with better values for stationary target
         self.kf.P = np.eye(6)
-        self.kf.P[0:3, 0:3] *= 100.0  # moderate initial position uncertainty
-        self.kf.P[3:6, 3:6] *= 0.01   # very low initial velocity uncertainty (nearly stationary)
+        self.kf.P[0:3, 0:3] *= 100.0   # larger initial position uncertainty
+        self.kf.P[3:6, 3:6] *= 0.001   # very small initial velocity uncertainty
         
-        # Process noise
-        q = process_noise_std ** 2
-        pos_noise = 1.0  # position process noise (m²)
-        vel_noise = q    # velocity process noise (m²/s⁴)
-        
-        self.kf.Q = np.zeros((6, 6))
-        self.kf.Q[0:3, 0:3] = pos_noise * np.eye(3)
-        self.kf.Q[3:6, 3:6] = vel_noise * dt * dt * np.eye(3)
+        # Store noise parameters
+        self.process_noise_std = process_noise_std
+        self.meas_noise_std = meas_noise_std
         
         # Measurement noise
         self.kf.R = np.eye(3) * (meas_noise_std ** 2)
@@ -133,7 +125,7 @@ class KalmanFilter:
                     continue
                 
                 # Update Kalman filter
-                self.predict(dt=dt)
+                self.predict(dt)
                 self.update(E_meas.reshape(3, 1))
                 
                 # Store results with the current timestamp
@@ -161,20 +153,20 @@ class KalmanFilter:
             
         return pd.DataFrame(results).set_index('timestamp')
 
-    def predict(self, dt=None):
-        """
-        Predict step of the Kalman filter.
+    def predict(self, dt):
+        """Predict step with improved noise model for stationary target"""
+        # Update state transition matrix
+        self.kf.F[0:3, 3:6] = dt * np.eye(3)
         
-        Parameters:
-            dt: float, optional time step (uses self.dt if not provided)
-        """
-        if dt is not None and dt != self.dt:
-            # Update state transition matrix for new dt
-            self.kf.F[0:3, 3:6] = dt * np.eye(3)
-            
-            # Update process noise for new dt
-            q = self.kf.Q[3, 3] / (self.dt * self.dt)  # extract original velocity noise
-            self.kf.Q[3:6, 3:6] = q * dt * dt * np.eye(3)
+        # Update process noise with different scales for position and velocity
+        q = self.process_noise_std ** 2
+        pos_noise = 0.1   # reduced position process noise (m²)
+        vel_noise = q     # velocity process noise (m²/s⁴)
+        
+        # Build process noise matrix with time scaling
+        self.kf.Q = np.zeros((6, 6))
+        self.kf.Q[0:3, 0:3] = pos_noise * dt * np.eye(3)           # position noise scales with dt
+        self.kf.Q[3:6, 3:6] = vel_noise * dt * dt * np.eye(3)      # velocity noise scales with dt²
         
         self.kf.predict()
 
@@ -230,38 +222,11 @@ def main():
     print("Input DataFrame:")
     print(df)
     
-    # Calculate and plot time differences
-    time_diffs = pd.Series(df.index).diff() / 1e9  # Convert nanoseconds to seconds
-    
-    plt.figure(figsize=(12, 6))
-    plt.subplot(211)
-    plt.plot(df.index[1:], time_diffs[1:], 'b.')
-    plt.axhline(y=time_diffs[1:].mean(), color='r', linestyle='--', 
-                label=f'Mean: {time_diffs[1:].mean():.3f}s')
-    plt.ylabel('Time Difference (seconds)')
-    plt.title('Time Differences Between Consecutive Measurements')
-    plt.grid(True)
-    plt.legend()
-
-    plt.subplot(212)
-    plt.hist(time_diffs[1:], bins=50)
-    plt.xlabel('Time Difference (seconds)')
-    plt.ylabel('Count')
-    plt.title('Histogram of Time Differences')
-    plt.grid(True)
-    
-    plt.tight_layout()
-    plt.show()
-
-    print("\nTime difference statistics (seconds):")
-    print(time_diffs[1:].describe())
-    
-    # Initialize Kalman filter with appropriate time scales
+    # Initialize Kalman filter with better parameters for stationary target
     kf = KalmanFilter(
-        dt=.5,                # nominal time step in seconds
-        min_measurement_dt=0.5, # minimum time between measurements in seconds
-        process_noise_std=1.0,  # small process noise for mostly stationary target
-        meas_noise_std=10.0    # reasonable measurement noise (10 meters std dev)
+        min_measurement_dt=1,      # minimum time between measurements in seconds
+        process_noise_std=0.1,     # much lower process noise for stationary target
+        meas_noise_std=5.0         # measurement noise (5 meters std dev)
     )
     
     # Setup coordinate system using first sensor position as reference
@@ -305,7 +270,7 @@ def main():
     rms_error = np.sqrt(np.mean(np.array(errors)**2))
     print(f"\nRMS Error: {rms_error:.2f} meters")
     
-    # Optional: Plot results
+    # Plot results
     try:
         # Position plots
         plt.figure(figsize=(12, 12))
