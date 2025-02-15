@@ -133,6 +133,54 @@ def lla_to_enu(lat, lon, alt, lat_ref, lon_ref, alt_ref):
     east, north, up = ecef_to_enu(x, y, z, lat_ref_rad, lon_ref_rad, alt_ref)
     return east, north, up
 
+def ecef_to_lla(x, y, z):
+    """
+    Convert ECEF coordinates (in meters) to LLA (latitude and longitude in degrees, altitude in meters)
+    using the WGS84 ellipsoid.
+    
+    Based on the Bowring formula for initial guess.
+    """
+    # WGS84 parameters
+    a = 6378137.0            # semi-major axis in meters
+    f = 1 / 298.257223563    # flattening
+    b = a * (1 - f)          # semi-minor axis
+    e_sq = f * (2 - f)       # eccentricity squared
+    e = np.sqrt(e_sq)
+    
+    p = np.sqrt(x**2 + y**2)
+    # Initial guess for latitude
+    theta = np.arctan2(z * a, p * b)
+    lon = np.arctan2(y, x)
+    lat = np.arctan2(z + e**2 * b * np.sin(theta)**3, p - e_sq * a * np.cos(theta)**3)
+    N = a / np.sqrt(1 - e_sq * np.sin(lat)**2)
+    alt = p / np.cos(lat) - N
+    
+    # Convert lat, lon to degrees
+    lat_deg = np.degrees(lat)
+    lon_deg = np.degrees(lon)
+    
+    return lat_deg, lon_deg, alt
+
+def enu_to_ecef(e, n, u, ref_lat, ref_lon, ref_alt):
+    """
+    Convert local ENU coordinates to ECEF coordinates.
+    
+    The ENU coordinate system is defined with respect to a reference point
+    specified by (ref_lat, ref_lon, ref_alt), where ref_lat and ref_lon are in degrees
+    and ref_alt in meters. This function uses the inverse of the ENU conversion.
+    """
+    # Convert reference latitude/longitude to radians.
+    lat0 = np.radians(ref_lat)
+    lon0 = np.radians(ref_lon)
+    # Get the ECEF coordinates of the reference point.
+    x0, y0, z0 = lla_to_ecef(lat0, lon0, ref_alt)
+    
+    # Inverse rotation from ENU to ECEF (see, e.g., standard geodesy texts)
+    x = x0 - np.sin(lon0)*e - np.sin(lat0)*np.cos(lon0)*n + np.cos(lat0)*np.cos(lon0)*u
+    y = y0 + np.cos(lon0)*e - np.sin(lat0)*np.sin(lon0)*n + np.cos(lat0)*np.sin(lon0)*u
+    z = z0 + np.cos(lat0)*n + np.sin(lat0)*u
+    return x, y, z
+
 def compute_intersection(P1, d1, P2, d2):
     """
     Compute the closest points on the two rays:
