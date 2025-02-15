@@ -7,6 +7,7 @@ from geometry import (
 )
 import pandas as pd
 from filterpy.kalman import KalmanFilter as FilterPyKF
+import matplotlib.pyplot as plt
 
 class KalmanFilter:
     def __init__(self, min_measurement_dt, meas_noise_std=5.0):
@@ -196,7 +197,6 @@ class KalmanFilter:
 def main():
     from pathlib import Path
     from parse_data import load_window
-    import matplotlib.pyplot as plt
     
     # Load data
     if len(sys.argv) < 2:
@@ -229,8 +229,8 @@ def main():
     
     # Initialize Kalman filter
     kf = KalmanFilter(
-        min_measurement_dt=2,
-        meas_noise_std=10.0
+        min_measurement_dt=1,
+        meas_noise_std=5.0
     )
     
     # Setup coordinate system using first sensor position as reference
@@ -306,40 +306,56 @@ def main():
         
         # Plot results for this emitter
         try:
-            plt.figure(figsize=(12, 12))
+            # Calculate indices for middle 70%
+            n_measurements = len(results_df)
+            start_idx = int(n_measurements * 0.25)  # Skip first 15%
+            end_idx = int(n_measurements * 0.8)    # Skip last 15%
+            
+            # Get the time slice for middle 70%
+            middle_times = results_df.index[start_idx:end_idx]
+            middle_slice = results_df.loc[middle_times]
+            middle_errors = errors[start_idx:end_idx]
+            
+            fig = plt.figure(figsize=(6, 6))
             plt.suptitle(f'Results for {emitter}')
             
             plt.subplot(411)
-            plt.plot(results_df.index, results_df['lat'], 'b-', label='Estimated')
+            plt.plot(middle_slice.index, middle_slice['lat'], 'b-', label='Estimated')
             plt.axhline(y=emitter_data['emitter_lat'], color='r', linestyle='--', label='True')
             plt.ylabel('Latitude')
             plt.legend()
             plt.grid(True)
             
             plt.subplot(412)
-            plt.plot(results_df.index, results_df['lon'], 'g-', label='Estimated')
+            plt.plot(middle_slice.index, middle_slice['lon'], 'g-', label='Estimated')
             plt.axhline(y=emitter_data['emitter_lon'], color='r', linestyle='--', label='True')
             plt.ylabel('Longitude')
             plt.legend()
             plt.grid(True)
             
             plt.subplot(413)
-            plt.plot(results_df.index, results_df['alt'], 'k-', label='Estimated')
+            plt.plot(middle_slice.index, middle_slice['alt'], 'k-', label='Estimated')
             plt.axhline(y=emitter_data['emitter_alt'], color='r', linestyle='--', label='True')
             plt.ylabel('Altitude (m)')
             plt.legend()
             plt.grid(True)
             
             plt.subplot(414)
-            plt.plot(results_df.index, errors, 'm-')
-            plt.axhline(y=rms_error, color='r', linestyle='--', label=f'RMS Error: {rms_error:.2f}m')
+            plt.plot(middle_slice.index, middle_errors, 'm-')
+            middle_rms = np.sqrt(np.mean(np.array(middle_errors)**2))
+            plt.axhline(y=middle_rms, color='r', linestyle='--', 
+                       label=f'{middle_rms:.2f}m')
             plt.ylabel('Error (m)')
             plt.xlabel('Time')
             plt.legend()
             plt.grid(True)
             
             plt.tight_layout()
+            
+            # Save figure with DPI=200
+            fig.savefig(f'kalman_results_{emitter}.png', dpi=300, bbox_inches='tight')
             plt.show()
+            plt.close()
             
         except Exception as e:
             print(f"Error creating plot for {emitter}: {e}")
