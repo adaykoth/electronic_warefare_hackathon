@@ -37,9 +37,10 @@ if __name__ == "__main__":
     file = Path(sys.argv[1])
     df = load_window(file)
 
+    print(df.columns)
     print(df)
 
-    plot_values(df, "Emitter11", "output")
+    plot_values(df, "Emitter1", "output")
 
 
     
