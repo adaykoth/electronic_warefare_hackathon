@@ -229,8 +229,8 @@ def main():
     
     # Initialize Kalman filter
     kf = KalmanFilter(
-        min_measurement_dt=.5,
-        meas_noise_std=1.0
+        min_measurement_dt=2,
+        meas_noise_std=10.0
     )
     
     # Setup coordinate system using first sensor position as reference
@@ -280,6 +280,7 @@ def main():
         # Calculate statistics for this emitter
         rms_error = np.sqrt(np.mean(np.array(errors)**2))
         mean_error = np.mean(errors)
+        median_error = np.median(errors)
         std_error = np.std(errors)
         max_error = np.max(errors)
         min_error = np.min(errors)
@@ -287,6 +288,7 @@ def main():
         emitter_stats[emitter] = {
             'rms': rms_error,
             'mean': mean_error,
+            'median': median_error,
             'std': std_error,
             'max': max_error,
             'min': min_error,
@@ -296,6 +298,7 @@ def main():
         print(f"\nStatistics for {emitter}:")
         print(f"RMS Error: {rms_error:.2f} meters")
         print(f"Mean Error: {mean_error:.2f} meters")
+        print(f"Median Error: {median_error:.2f} meters")
         print(f"Std Dev: {std_error:.2f} meters")
         print(f"Max Error: {max_error:.2f} meters")
         print(f"Min Error: {min_error:.2f} meters")
@@ -349,17 +352,18 @@ def main():
     print(f"Total number of measurements: {total_measurements}")
     print(f"Overall RMS Error: {np.sqrt(np.mean(all_errors**2)):.2f} meters")
     print(f"Overall Mean Error: {np.mean(all_errors):.2f} meters")
+    print(f"Overall Median Error: {np.median(all_errors):.2f} meters")
     print(f"Overall Std Dev: {np.std(all_errors):.2f} meters")
     print(f"Overall Max Error: {np.max(all_errors):.2f} meters")
     print(f"Overall Min Error: {np.min(all_errors):.2f} meters")
     
-    # Print summary table
+    # Print summary table with added median column
     print("\n=== EMITTER SUMMARY ===")
-    print("Emitter      | RMS Error | Mean Error | Std Dev | Max Error | Min Error | # Measurements")
-    print("-" * 85)
+    print("Emitter      | RMS Error | Mean Error | Median Error | Std Dev | Max Error | Min Error | # Measurements")
+    print("-" * 98)
     for emitter, stats in emitter_stats.items():
-        print(f"{emitter:11} | {stats['rms']:9.2f} | {stats['mean']:10.2f} | {stats['std']:7.2f} | "
-              f"{stats['max']:9.2f} | {stats['min']:9.2f} | {stats['num_measurements']:14d}")
+        print(f"{emitter:11} | {stats['rms']:9.2f} | {stats['mean']:10.2f} | {stats['median']:12.2f} | "
+              f"{stats['std']:7.2f} | {stats['max']:9.2f} | {stats['min']:9.2f} | {stats['num_measurements']:14d}")
 
 if __name__ == "__main__":
     main()
