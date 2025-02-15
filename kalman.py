@@ -57,52 +57,54 @@ class KalmanFilter:
             raise ValueError("Coordinate system not initialized. Call setup_coordinates first.")
             
         results = []
-        prev_row = None
-        prev_time = None
-        
-        # Initialize state with first valid measurement
         first_valid_found = False
         
-        for idx, row in df.iterrows():
-            if prev_row is None:
-                prev_row = row
-                prev_time = idx
-                continue
+        i = 0
+        while i < len(df) - 1:
+            current_row = df.iloc[i]
+            current_time = df.index[i]
+            
+            # Find next valid measurement time (at least min_measurement_dt seconds later)
+            next_time_ns = current_time + int(self.min_measurement_dt * 1e9)  # Convert to nanoseconds
+            future_indices = df.index[df.index > next_time_ns]
+            
+            if len(future_indices) == 0:
+                break
                 
-            # Convert nanoseconds to seconds for dt
-            dt = (idx - prev_time) / 1e9
-            if dt < self.min_measurement_dt:
-                continue
-                
+            # Get the next valid measurement
+            next_idx = df.index.get_loc(future_indices[0])
+            next_row = df.iloc[next_idx]
+            next_time = future_indices[0]
+            
             # Convert sensor positions to ENU
             s1 = np.array(lla_to_enu(
-                prev_row['sensor_lat'], 
-                prev_row['sensor_lon'], 
-                prev_row['sensor_alt'],
+                current_row['sensor_lat'], 
+                current_row['sensor_lon'], 
+                current_row['sensor_alt'],
                 *self.ref_lla
             ))
             s2 = np.array(lla_to_enu(
-                row['sensor_lat'], 
-                row['sensor_lon'], 
-                row['sensor_alt'],
+                next_row['sensor_lat'], 
+                next_row['sensor_lon'], 
+                next_row['sensor_alt'],
                 *self.ref_lla
             ))
             
             # Get direction vectors
             u1 = sensor_direction_vector_enu(
-                prev_row['azimuth'], prev_row['elevation'],
-                prev_row['sensor_yaw'], prev_row['sensor_pitch'], prev_row['sensor_roll']
+                current_row['azimuth'], current_row['elevation'],
+                current_row['sensor_yaw'], current_row['sensor_pitch'], current_row['sensor_roll']
             )
             u2 = sensor_direction_vector_enu(
-                row['azimuth'], row['elevation'],
-                row['sensor_yaw'], row['sensor_pitch'], row['sensor_roll']
+                next_row['azimuth'], next_row['elevation'],
+                next_row['sensor_yaw'], next_row['sensor_pitch'], next_row['sensor_roll']
             )
             
             try:
                 # Get position estimate in ENU
                 position_estimates = compute_emitter_position(
-                    s1, u1, prev_row['amplitude'],
-                    s2, u2, row['amplitude']
+                    s1, u1, current_row['amplitude'],
+                    s2, u2, next_row['amplitude']
                 )
                 
                 # Only use geometric estimate
@@ -113,15 +115,14 @@ class KalmanFilter:
                 
                 # Initialize state with first valid measurement
                 if not first_valid_found:
-                    self.kf.x = E_meas.reshape(3, 1)
+                    self.kf.x = np.array(E_meas).reshape(3, 1)
                     first_valid_found = True
-                    prev_row = row
-                    prev_time = idx
+                    i = next_idx  # Move to the next measurement
                     continue
                 
                 # Update Kalman filter
                 self.kf.predict()
-                self.kf.update(E_meas.reshape(3, 1))
+                self.kf.update(np.array(E_meas).reshape(3, 1))
                 
                 # Store results with the current timestamp
                 state = self.kf.x.flatten()
@@ -131,17 +132,17 @@ class KalmanFilter:
                 lat, lon, alt = ecef_to_lla(*ecef_pos)
                 
                 results.append({
-                    'timestamp': idx,
+                    'timestamp': next_time,
                     'lat': lat,
                     'lon': lon,
                     'alt': alt
                 })
                 
             except ValueError as e:
-                print(f"Error processing measurement at time {idx}: {e}", file=sys.stderr)
+                print(f"Error processing measurement pair at time {next_time}: {e}", file=sys.stderr)
             
-            prev_row = row
-            prev_time = idx
+            # Move to the next measurement (the one we just used as second in the pair)
+            i = next_idx
             
         return pd.DataFrame(results).set_index('timestamp')
 
@@ -157,7 +158,6 @@ def main():
     from pathlib import Path
     from parse_data import load_window
     import matplotlib.pyplot as plt
-    import numpy as np
     
     # Load data
     if len(sys.argv) < 2:
@@ -190,7 +190,7 @@ def main():
     
     # Initialize Kalman filter with better parameters for slow-moving target
     kf = KalmanFilter(
-        min_measurement_dt=0.5,     # minimum time between measurements in seconds
+        min_measurement_dt=2,     # minimum time between measurements in seconds
         meas_noise_std=1.0         # slightly increased measurement noise
     )
     
