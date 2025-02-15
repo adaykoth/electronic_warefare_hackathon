@@ -6,11 +6,12 @@ from geometry import (
     ecef_to_enu, enu_to_ecef, sensor_direction_vector_enu
 )
 import pandas as pd
+from filterpy.kalman import KalmanFilter as FilterPyKF
 
 class KalmanFilter:
     def __init__(self, dt, min_measurement_dt, process_noise_std=1.0, meas_noise_std=10.0):
         """
-        Initialize Kalman filter for emitter tracking.
+        Initialize Kalman filter for emitter tracking using FilterPy.
         
         Parameters:
             dt: float, nominal time step for prediction
@@ -18,38 +19,39 @@ class KalmanFilter:
             process_noise_std: float, process noise standard deviation (m/s²)
             meas_noise_std: float, measurement noise standard deviation (m)
         """
+        # Create FilterPy Kalman filter with 6 state variables and 3 measurements
+        self.kf = FilterPyKF(dim_x=6, dim_z=3)
         self.dt = dt
         self.min_measurement_dt = min_measurement_dt
-        self.x = np.zeros((6, 1))          # initial state
-        self.P = np.eye(6)                 # initial uncertainty
-        self.P[0:3, 0:3] *= 100.0          # moderate initial position uncertainty
-        self.P[3:6, 3:6] *= 0.01           # very low initial velocity uncertainty
         
-        # State transition matrix (constant velocity model)
-        self.F = np.eye(6)
-        self.F[0:3, 3:6] = dt * np.eye(3)
+        # Initialize state transition matrix (constant velocity model)
+        self.kf.F = np.eye(6)
+        self.kf.F[0:3, 3:6] = dt * np.eye(3)
         
-        # Process noise covariance (very low noise for near-stationary target)
+        # Initialize measurement matrix (we only measure position)
+        self.kf.H = np.hstack([np.eye(3), np.zeros((3, 3))])
+        
+        # Initialize covariance matrices
+        self.kf.P = np.eye(6)
+        self.kf.P[0:3, 0:3] *= 100.0  # moderate initial position uncertainty
+        self.kf.P[3:6, 3:6] *= 0.01   # very low initial velocity uncertainty
+        
+        # Process noise
         q = process_noise_std ** 2
-        dt2 = dt ** 2
-        dt3 = dt ** 3 / 3.0
-        dt4 = dt ** 4 / 8.0
-        
-        # Separate position and velocity process noise
         pos_noise = 1.0  # position process noise (m²)
         vel_noise = q    # velocity process noise (m²/s⁴)
         
-        self.Q = np.zeros((6, 6))
-        self.Q[0:3, 0:3] = pos_noise * np.eye(3)           # position noise
-        self.Q[3:6, 3:6] = vel_noise * dt2 * np.eye(3)     # velocity noise
+        self.kf.Q = np.zeros((6, 6))
+        self.kf.Q[0:3, 0:3] = pos_noise * np.eye(3)
+        self.kf.Q[3:6, 3:6] = vel_noise * dt * dt * np.eye(3)
         
-        # Measurement model (we measure position only)
-        self.H = np.hstack([np.eye(3), np.zeros((3, 3))])
-        self.R = np.eye(3) * (meas_noise_std ** 2)
+        # Measurement noise
+        self.kf.R = np.eye(3) * (meas_noise_std ** 2)
+        
+        # Initialize state to zero
+        self.kf.x = np.zeros((6, 1))
         
         # Store transformation parameters
-        self.R_ecef_to_enu = None
-        self.R_enu_to_ecef = None
         self.ref_ecef = None
         self.ref_lla = None
 
@@ -117,8 +119,8 @@ class KalmanFilter:
                 
                 # Initialize state with first valid measurement
                 if not first_valid_found:
-                    self.x[0:3] = E_meas.reshape(3, 1)
-                    self.x[3:6] = np.zeros((3, 1))  # Initialize velocity as zero
+                    self.kf.x[0:3] = E_meas.reshape(3, 1)
+                    self.kf.x[3:6] = np.zeros((3, 1))  # Initialize velocity as zero
                     first_valid_found = True
                     prev_row = row
                     prev_time = idx
@@ -129,7 +131,7 @@ class KalmanFilter:
                 self.update(E_meas.reshape(3, 1))
                 
                 # Store results with the current timestamp
-                state = self.x.flatten()
+                state = self.kf.x.flatten()
                 enu_pos = state[0:3]
                 ecef_pos = enu_to_ecef(enu_pos[0], enu_pos[1], enu_pos[2], 
                     self.ref_lla[0], self.ref_lla[1], self.ref_lla[2])
@@ -162,21 +164,13 @@ class KalmanFilter:
         """
         if dt is not None and dt != self.dt:
             # Update state transition matrix for new dt
-            self.F[0:3, 3:6] = dt * np.eye(3)
+            self.kf.F[0:3, 3:6] = dt * np.eye(3)
             
-            # Update process noise covariance for new dt
-            q = self.Q[0, 0] / (self.dt ** 4)  # extract original process noise
-            dt2 = dt ** 2
-            dt3 = dt ** 3 / 2.0
-            dt4 = dt ** 4 / 4.0
-            self.Q = np.block([
-                [dt4 * np.eye(3), dt3 * np.eye(3)],
-                [dt3 * np.eye(3), dt2 * np.eye(3)]
-            ]) * q
+            # Update process noise for new dt
+            q = self.kf.Q[3, 3] / (self.dt * self.dt)  # extract original velocity noise
+            self.kf.Q[3:6, 3:6] = q * dt * dt * np.eye(3)
         
-        # Predict state and covariance
-        self.x = self.F @ self.x
-        self.P = self.F @ self.P @ self.F.T + self.Q
+        self.kf.predict()
 
     def update(self, z):
         """
@@ -185,18 +179,15 @@ class KalmanFilter:
         Parameters:
             z: np.array shape (3,1), measurement of position in ENU coordinates
         """
-        # Innovation
-        y = z - self.H @ self.x
-        
-        # Innovation covariance
-        S = self.H @ self.P @ self.H.T + self.R
-        
-        # Kalman gain
-        K = self.P @ self.H.T @ np.linalg.inv(S)
-        
-        # Update state and covariance
-        self.x = self.x + K @ y
-        self.P = (np.eye(6) - K @ self.H) @ self.P
+        self.kf.update(z)
+
+    @property
+    def x(self):
+        return self.kf.x
+
+    @x.setter
+    def x(self, value):
+        self.kf.x = value
 
 def main():
     from pathlib import Path
@@ -233,8 +224,8 @@ def main():
     
     # Initialize Kalman filter with appropriate time scales
     kf = KalmanFilter(
-        dt=1.0,                # nominal time step in seconds
-        min_measurement_dt=0.5, # minimum time between measurements in seconds
+        dt=4.0,                # nominal time step in seconds
+        min_measurement_dt=10, # minimum time between measurements in seconds
         process_noise_std=0.01, # very low process noise for stationary target
         meas_noise_std=5.0     # measurement noise (position std dev in meters)
     )
