@@ -5,6 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "hdbscan>=0.8.40",
+    "lightgbm>=4.6.0",
     "matplotlib>=3.10.0",
     "pandas>=2.2.3",
     "plotly>=6.0.0",
@@ -13,4 +15,5 @@ dependencies = [
     "pyproj>=3.7.0",
     "scikit-learn>=1.6.1",
     "torch>=2.6.0",
+    "xgboost>=2.1.4",
 ]
