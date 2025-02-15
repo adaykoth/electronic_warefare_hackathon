@@ -62,8 +62,8 @@ def global_direction_vector(azimuth, elevation, sensor_yaw, sensor_pitch, sensor
     roll = np.radians(sensor_roll)
     
     d_sensor = sensor_direction_vector(az, el)
-    R = rotation_matrix(yaw, pitch, roll)
-    return R @ d_sensor
+    #R = rotation_matrix(yaw, pitch, roll) ### DONT USE THIS
+    return d_sensor
 
 def sensor_direction_vector_enu(azimuth, elevation, sensor_yaw, sensor_pitch, sensor_roll):
     """
