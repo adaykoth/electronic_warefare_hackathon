@@ -132,7 +132,7 @@ class KalmanFilter:
                 lat, lon, alt = ecef_to_lla(*ecef_pos)
                 
                 results.append({
-                    'timestamp': next_time,
+                    'index': next_time,
                     'lat': lat,
                     'lon': lon,
                     'alt': alt
@@ -141,10 +141,14 @@ class KalmanFilter:
             except ValueError as e:
                 print(f"Error processing measurement pair at time {next_time}: {e}", file=sys.stderr)
             
-            # Move to the next measurement (the one we just used as second in the pair)
+            # Move to the next measurement
             i = next_idx
             
-        return pd.DataFrame(results).set_index('timestamp')
+        # Create DataFrame and set index
+        results_df = pd.DataFrame(results)
+        if len(results_df) > 0:
+            results_df.set_index('index', inplace=True)
+        return results_df
 
     @property
     def x(self):
@@ -153,6 +157,41 @@ class KalmanFilter:
     @x.setter
     def x(self, value):
         self.kf.x = value
+
+    def process_multiple_emitters(self, df):
+        """
+        Process measurements for all emitters in the dataframe.
+        
+        Parameters:
+            df: pandas DataFrame with 'emitter' column and all required measurement columns
+            
+        Returns:
+            dict: Dictionary mapping emitter IDs to their respective result DataFrames
+        """
+        if 'emitter' not in df.columns:
+            raise ValueError("DataFrame must contain 'emitter' column")
+            
+        if self.ref_lla is None:
+            raise ValueError("Coordinate system not initialized. Call setup_coordinates first.")
+            
+        # Get unique emitters
+        emitters = df['emitter'].unique()
+        results = {}
+        
+        # Process each emitter separately
+        for emitter in emitters:
+            # Filter data for this emitter
+            emitter_df = df[df['emitter'] == emitter].copy()
+            emitter_df = emitter_df.drop('emitter', axis=1)
+            
+            # Reset Kalman filter state for new emitter
+            self.kf.x = np.zeros((3, 1))
+            self.kf.P = np.eye(3) * 100.0  # Reset covariance
+            
+            # Process this emitter's data
+            results[emitter] = self.process_dataframe(emitter_df)
+            
+        return results
 
 def main():
     from pathlib import Path
@@ -167,16 +206,16 @@ def main():
     data_file = Path(sys.argv[1])
     df = load_window(data_file)
     
-    # Filter for Emitter2
-    emitter = "Emitter1"
-    df = df.filter(df["emitter"] == emitter).drop("emitter")
+    # Modified main function to demonstrate multiple emitter processing
+    df = load_window(data_file)
     
-    # Select required columns
+    # Select required columns including emitter
     columns_to_keep = [
         'arrival_time', 'azimuth', 'elevation', 'amplitude',
         'sensor_lat', 'sensor_lon', 'sensor_alt', 
         'sensor_yaw', 'sensor_pitch', 'sensor_roll', 
-        'emitter_lat', 'emitter_lon', 'emitter_alt'
+        'emitter_lat', 'emitter_lon', 'emitter_alt',
+        'emitter'  # Keep the emitter column
     ]
     df = df.select(columns_to_keep)
     
@@ -188,10 +227,10 @@ def main():
     print("Input DataFrame:")
     print(df)
     
-    # Initialize Kalman filter with better parameters for slow-moving target
+    # Initialize Kalman filter
     kf = KalmanFilter(
-        min_measurement_dt=2,     # minimum time between measurements in seconds
-        meas_noise_std=1.0         # slightly increased measurement noise
+        min_measurement_dt=2,
+        meas_noise_std=1.0
     )
     
     # Setup coordinate system using first sensor position as reference
@@ -202,79 +241,80 @@ def main():
         first_row['sensor_alt']
     )
     
-    # Process all measurements
-    results_df = kf.process_dataframe(df)
+    # Process all emitters
+    results = kf.process_multiple_emitters(df)
     
-    # Print results
-    print("\nResults:")
-    print(results_df)
-    
-    # Calculate true emitter position in ENU
-    true_enu = np.array(lla_to_enu(
-        first_row['emitter_lat'],
-        first_row['emitter_lon'],
-        first_row['emitter_alt'],
-        first_row['sensor_lat'],
-        first_row['sensor_lon'],
-        first_row['sensor_alt']
-    ))
-    print("\nTrue emitter position (ENU):", true_enu)
-    
-    # Calculate RMS error
-    errors = []
-    for _, row in results_df.iterrows():
-        est_enu = np.array(lla_to_enu(
-            row['lat'], row['lon'], row['alt'],
+    # Print and plot results for each emitter
+    for emitter, results_df in results.items():
+        print(f"\nResults for {emitter}:")
+        print(results_df)
+        
+        # Get true position for this emitter
+        emitter_data = df[df['emitter'] == emitter].iloc[0]
+        true_enu = np.array(lla_to_enu(
+            emitter_data['emitter_lat'],
+            emitter_data['emitter_lon'],
+            emitter_data['emitter_alt'],
             first_row['sensor_lat'],
             first_row['sensor_lon'],
             first_row['sensor_alt']
         ))
-        error = np.linalg.norm(est_enu - true_enu)
-        errors.append(error)
-    
-    rms_error = np.sqrt(np.mean(np.array(errors)**2))
-    print(f"\nRMS Error: {rms_error:.2f} meters")
-    
-    # Plot results
-    try:
-        # Position plots
-        plt.figure(figsize=(12, 12))
+        print(f"\nTrue {emitter} position (ENU):", true_enu)
         
-        plt.subplot(411)
-        plt.plot(results_df.index, results_df['lat'], 'b-', label='Estimated')
-        plt.axhline(y=first_row['emitter_lat'], color='r', linestyle='--', label='True')
-        plt.ylabel('Latitude')
-        plt.legend()
-        plt.grid(True)
+        # Calculate errors
+        errors = []
+        for _, row in results_df.iterrows():
+            est_enu = np.array(lla_to_enu(
+                row['lat'], row['lon'], row['alt'],
+                first_row['sensor_lat'],
+                first_row['sensor_lon'],
+                first_row['sensor_alt']
+            ))
+            error = np.linalg.norm(est_enu - true_enu)
+            errors.append(error)
         
-        plt.subplot(412)
-        plt.plot(results_df.index, results_df['lon'], 'g-', label='Estimated')
-        plt.axhline(y=first_row['emitter_lon'], color='r', linestyle='--', label='True')
-        plt.ylabel('Longitude')
-        plt.legend()
-        plt.grid(True)
+        rms_error = np.sqrt(np.mean(np.array(errors)**2))
+        print(f"RMS Error for {emitter}: {rms_error:.2f} meters")
         
-        plt.subplot(413)
-        plt.plot(results_df.index, results_df['alt'], 'k-', label='Estimated')
-        plt.axhline(y=first_row['emitter_alt'], color='r', linestyle='--', label='True')
-        plt.ylabel('Altitude (m)')
-        plt.legend()
-        plt.grid(True)
-        
-        # Error plot
-        plt.subplot(414)
-        plt.plot(results_df.index, errors, 'm-')
-        plt.axhline(y=rms_error, color='r', linestyle='--', label=f'RMS Error: {rms_error:.2f}m')
-        plt.ylabel('Error (m)')
-        plt.xlabel('Time')
-        plt.legend()
-        plt.grid(True)
-        
-        plt.tight_layout()
-        plt.show()
-        
-    except Exception as e:
-        print(f"Error creating plot: {e}")
+        # Plot results for this emitter
+        try:
+            plt.figure(figsize=(12, 12))
+            plt.suptitle(f'Results for {emitter}')
+            
+            plt.subplot(411)
+            plt.plot(results_df.index, results_df['lat'], 'b-', label='Estimated')
+            plt.axhline(y=emitter_data['emitter_lat'], color='r', linestyle='--', label='True')
+            plt.ylabel('Latitude')
+            plt.legend()
+            plt.grid(True)
+            
+            plt.subplot(412)
+            plt.plot(results_df.index, results_df['lon'], 'g-', label='Estimated')
+            plt.axhline(y=emitter_data['emitter_lon'], color='r', linestyle='--', label='True')
+            plt.ylabel('Longitude')
+            plt.legend()
+            plt.grid(True)
+            
+            plt.subplot(413)
+            plt.plot(results_df.index, results_df['alt'], 'k-', label='Estimated')
+            plt.axhline(y=emitter_data['emitter_alt'], color='r', linestyle='--', label='True')
+            plt.ylabel('Altitude (m)')
+            plt.legend()
+            plt.grid(True)
+            
+            plt.subplot(414)
+            plt.plot(results_df.index, errors, 'm-')
+            plt.axhline(y=rms_error, color='r', linestyle='--', label=f'RMS Error: {rms_error:.2f}m')
+            plt.ylabel('Error (m)')
+            plt.xlabel('Time')
+            plt.legend()
+            plt.grid(True)
+            
+            plt.tight_layout()
+            plt.show()
+            
+        except Exception as e:
+            print(f"Error creating plot for {emitter}: {e}")
 
 if __name__ == "__main__":
     main()
