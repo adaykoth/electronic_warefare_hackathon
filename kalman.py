@@ -229,7 +229,7 @@ def main():
     
     # Initialize Kalman filter
     kf = KalmanFilter(
-        min_measurement_dt=2,
+        min_measurement_dt=.5,
         meas_noise_std=1.0
     )
     
@@ -245,6 +245,9 @@ def main():
     results = kf.process_multiple_emitters(df)
     
     # Print and plot results for each emitter
+    all_errors = []
+    emitter_stats = {}
+    
     for emitter, results_df in results.items():
         print(f"\nResults for {emitter}:")
         print(results_df)
@@ -272,9 +275,31 @@ def main():
             ))
             error = np.linalg.norm(est_enu - true_enu)
             errors.append(error)
+            all_errors.append(error)
         
+        # Calculate statistics for this emitter
         rms_error = np.sqrt(np.mean(np.array(errors)**2))
-        print(f"RMS Error for {emitter}: {rms_error:.2f} meters")
+        mean_error = np.mean(errors)
+        std_error = np.std(errors)
+        max_error = np.max(errors)
+        min_error = np.min(errors)
+        
+        emitter_stats[emitter] = {
+            'rms': rms_error,
+            'mean': mean_error,
+            'std': std_error,
+            'max': max_error,
+            'min': min_error,
+            'num_measurements': len(errors)
+        }
+        
+        print(f"\nStatistics for {emitter}:")
+        print(f"RMS Error: {rms_error:.2f} meters")
+        print(f"Mean Error: {mean_error:.2f} meters")
+        print(f"Std Dev: {std_error:.2f} meters")
+        print(f"Max Error: {max_error:.2f} meters")
+        print(f"Min Error: {min_error:.2f} meters")
+        print(f"Number of measurements: {len(errors)}")
         
         # Plot results for this emitter
         try:
@@ -315,6 +340,26 @@ def main():
             
         except Exception as e:
             print(f"Error creating plot for {emitter}: {e}")
+    
+    # Calculate and print overall statistics
+    all_errors = np.array(all_errors)
+    total_measurements = sum(stats['num_measurements'] for stats in emitter_stats.values())
+    
+    print("\n=== OVERALL STATISTICS ===")
+    print(f"Total number of measurements: {total_measurements}")
+    print(f"Overall RMS Error: {np.sqrt(np.mean(all_errors**2)):.2f} meters")
+    print(f"Overall Mean Error: {np.mean(all_errors):.2f} meters")
+    print(f"Overall Std Dev: {np.std(all_errors):.2f} meters")
+    print(f"Overall Max Error: {np.max(all_errors):.2f} meters")
+    print(f"Overall Min Error: {np.min(all_errors):.2f} meters")
+    
+    # Print summary table
+    print("\n=== EMITTER SUMMARY ===")
+    print("Emitter      | RMS Error | Mean Error | Std Dev | Max Error | Min Error | # Measurements")
+    print("-" * 85)
+    for emitter, stats in emitter_stats.items():
+        print(f"{emitter:11} | {stats['rms']:9.2f} | {stats['mean']:10.2f} | {stats['std']:7.2f} | "
+              f"{stats['max']:9.2f} | {stats['min']:9.2f} | {stats['num_measurements']:14d}")
 
 if __name__ == "__main__":
     main()
