@@ -9,46 +9,39 @@ import pandas as pd
 from filterpy.kalman import KalmanFilter as FilterPyKF
 
 class KalmanFilter:
-    def __init__(self, min_measurement_dt, process_noise_std=0.01, meas_noise_std=5.0):
+    def __init__(self, min_measurement_dt, meas_noise_std=5.0):
         """
-        Initialize Kalman filter for emitter tracking using FilterPy.
+        Initialize Kalman filter for stationary emitter tracking.
         
         Parameters:
             min_measurement_dt: float, minimum time difference between measurements (seconds)
-            process_noise_std: float, process noise standard deviation (m/s²)
             meas_noise_std: float, measurement noise standard deviation (m)
         """
-        # Create FilterPy Kalman filter with 6 state variables and 3 measurements
-        self.kf = FilterPyKF(dim_x=6, dim_z=3)
+        # Create FilterPy Kalman filter with 3 state variables (position only) and 3 measurements
+        self.kf = FilterPyKF(dim_x=3, dim_z=3)
         self.min_measurement_dt = min_measurement_dt
         
-        # Initialize state transition matrix (will be updated with actual dt)
-        self.kf.F = np.eye(6)
+        # State transition matrix is identity (stationary target)
+        self.kf.F = np.eye(3)
         
-        # Initialize measurement matrix (we only measure position)
-        self.kf.H = np.hstack([np.eye(3), np.zeros((3, 3))])
+        # Measurement matrix is identity (we directly measure position)
+        self.kf.H = np.eye(3)
         
-        # Initialize covariance matrices with values for slow-moving target
-        self.kf.P = np.eye(6)
-        self.kf.P[0:3, 0:3] *= 100.0    # High initial position uncertainty
-        self.kf.P[3:6, 3:6] *= 0.00001  # Even lower initial velocity uncertainty
+        # Initialize state covariance
+        self.kf.P = np.eye(3) * 100.0  # High initial position uncertainty
         
-        # Store noise parameters
-        self.process_noise_std = process_noise_std
-        self.meas_noise_std = meas_noise_std
-        
-        # Measurement noise - increased to trust measurements less
+        # Measurement noise
         self.kf.R = np.eye(3) * (meas_noise_std ** 2)
         
+        # Very small process noise for stationary target
+        self.kf.Q = np.eye(3) * 0.01
+        
         # Initialize state to zero
-        self.kf.x = np.zeros((6, 1))
+        self.kf.x = np.zeros((3, 1))
         
         # Store transformation parameters
         self.ref_ecef = None
         self.ref_lla = None
-        
-        # Add velocity limits
-        self.max_velocity = 10.0  # Maximum allowed velocity in m/s
 
     def setup_coordinates(self, ref_lat, ref_lon, ref_alt):
         """Setup coordinate transformation parameters."""
@@ -120,16 +113,15 @@ class KalmanFilter:
                 
                 # Initialize state with first valid measurement
                 if not first_valid_found:
-                    self.kf.x[0:3] = E_meas.reshape(3, 1)
-                    self.kf.x[3:6] = np.zeros((3, 1))  # Initialize velocity as zero
+                    self.kf.x = E_meas.reshape(3, 1)
                     first_valid_found = True
                     prev_row = row
                     prev_time = idx
                     continue
                 
                 # Update Kalman filter
-                self.predict(dt)
-                self.update(E_meas.reshape(3, 1))
+                self.kf.predict()
+                self.kf.update(E_meas.reshape(3, 1))
                 
                 # Store results with the current timestamp
                 state = self.kf.x.flatten()
@@ -142,10 +134,7 @@ class KalmanFilter:
                     'timestamp': idx,
                     'lat': lat,
                     'lon': lon,
-                    'alt': alt,
-                    'vx': state[3],
-                    'vy': state[4],
-                    'vz': state[5]
+                    'alt': alt
                 })
                 
             except ValueError as e:
@@ -155,32 +144,6 @@ class KalmanFilter:
             prev_time = idx
             
         return pd.DataFrame(results).set_index('timestamp')
-
-    def predict(self, dt):
-        """Predict step with improved noise model for slow-moving target"""
-        # Update state transition matrix
-        self.kf.F[0:3, 3:6] = dt * np.eye(3)
-        
-        # Update process noise with different scales for position and velocity
-        q = self.process_noise_std ** 2
-        pos_noise = 0.001     # extremely small position process noise (m²)
-        vel_noise = 0.000001  # even smaller velocity process noise (m²/s⁴)
-        
-        # Build process noise matrix with time scaling
-        self.kf.Q = np.zeros((6, 6))
-        self.kf.Q[0:3, 0:3] = pos_noise * dt * np.eye(3)
-        self.kf.Q[3:6, 3:6] = vel_noise * dt * dt * np.eye(3)
-        
-        self.kf.predict()
-
-    def update(self, z):
-        """
-        Update step of the Kalman filter.
-        
-        Parameters:
-            z: np.array shape (3,1), measurement of position in ENU coordinates
-        """
-        self.kf.update(z)
 
     @property
     def x(self):
@@ -205,7 +168,7 @@ def main():
     df = load_window(data_file)
     
     # Filter for Emitter2
-    emitter = "Emitter2"
+    emitter = "Emitter1"
     df = df.filter(df["emitter"] == emitter).drop("emitter")
     
     # Select required columns
@@ -227,9 +190,8 @@ def main():
     
     # Initialize Kalman filter with better parameters for slow-moving target
     kf = KalmanFilter(
-        min_measurement_dt=0.1,     # minimum time between measurements in seconds
-        process_noise_std=0.01,     # much lower process noise for slow movement
-        meas_noise_std=10.0         # slightly increased measurement noise
+        min_measurement_dt=0.5,     # minimum time between measurements in seconds
+        meas_noise_std=1.0         # slightly increased measurement noise
     )
     
     # Setup coordinate system using first sensor position as reference
@@ -309,18 +271,6 @@ def main():
         plt.grid(True)
         
         plt.tight_layout()
-        plt.show()
-        
-        # Velocity plot
-        plt.figure(figsize=(12, 4))
-        plt.plot(results_df.index, results_df['vx'], 'r-', label='Vx')
-        plt.plot(results_df.index, results_df['vy'], 'g-', label='Vy')
-        plt.plot(results_df.index, results_df['vz'], 'b-', label='Vz')
-        plt.ylabel('Velocity (m/s)')
-        plt.xlabel('Time')
-        plt.legend()
-        plt.grid(True)
-        plt.title('Estimated Velocities')
         plt.show()
         
     except Exception as e:

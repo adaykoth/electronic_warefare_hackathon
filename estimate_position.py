@@ -34,9 +34,9 @@ def compute_emitter_position(s1, u1, A1, s2, u2, A2):
     All inputs and outputs are in ENU coordinates.
     
     Parameters:
-        s1, s2: sensor positions in ENU
-        u1, u2: direction vectors in ENU
-        A1, A2: received amplitudes in dBm
+        s1, s2: sensor positions in ENU coordinates (np.array)
+        u1, u2: direction vectors in ENU coordinates (np.array)
+        A1, A2: received amplitudes in dBm (float)
     
     Returns:
         dict containing:
