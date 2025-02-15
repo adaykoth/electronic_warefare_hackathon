@@ -36,7 +36,7 @@ def compute_global_vectors_enu(df):
 def plot_trajectories(df, ray_length=1000, ray_interval=1000):
     """
     Plot sensor and emitter trajectories (converted to local ENU coordinates)
-    along with sensor rays.
+    along with sensor rays, using a dark mode theme.
     
     Since all our computations are now in ENU (with axes: [East, North, Up]),
     we directly use these coordinates.
@@ -65,8 +65,8 @@ def plot_trajectories(df, ray_length=1000, ray_interval=1000):
         z=sensor_enu[:, 2],
         mode="lines+markers",
         name="Sensor Trajectory",
-        line=dict(color="blue"),
-        marker=dict(size=3, color="blue"),
+        line=dict(color="lemonchiffon"),
+        marker=dict(size=3, color="cyan"),
     )
     trace_emitter = go.Scatter3d(
         x=emitter_enu[:, 0],
@@ -74,8 +74,8 @@ def plot_trajectories(df, ray_length=1000, ray_interval=1000):
         z=emitter_enu[:, 2],
         mode="lines+markers",
         name="Emitter Trajectory",
-        line=dict(color="red"),
-        marker=dict(size=3, color="red"),
+        line=dict(color="white"),
+        marker=dict(size=8, color="tomato"),
     )
 
     # Build sensor rays using the already computed ENU sensor direction vectors.
@@ -99,16 +99,32 @@ def plot_trajectories(df, ray_length=1000, ray_interval=1000):
         z=ray_z,
         mode="lines",
         name="Sensor Rays",
-        line=dict(color="green", width=2),
+        line=dict(color="lemonchiffon", width=1, dash="solid"),
     )
 
-    # Assemble and show the figure.
+    # Assemble the figure with dark mode settings.
     fig = go.Figure(data=[trace_sensor, trace_emitter, trace_rays])
+    
     fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(50, 50, 50, 1)",  # dark grey background for the paper
+        plot_bgcolor="rgba(50, 50, 50, 1)",   # dark grey background for the plot area
         scene=dict(
-            xaxis_title="East (m)",
-            yaxis_title="North (m)",
-            zaxis_title="Up (m)"
+            xaxis=dict(
+                title="East (m)",
+                backgroundcolor="rgba(50, 50, 50, 1)",
+                color="white"
+            ),
+            yaxis=dict(
+                title="North (m)",
+                backgroundcolor="rgba(50, 50, 50, 1)",
+                color="white"
+            ),
+            zaxis=dict(
+                title="Up (m)",
+                backgroundcolor="rgba(50, 50, 50, 1)",
+                color="white"
+            ),
         ),
         title="Sensor & Emitter Trajectories with Direction Rays"
     )
@@ -120,7 +136,7 @@ if __name__ == "__main__":
     file_path = Path(sys.argv[1])
     df_pl = load_window(file_path)
 
-    emitter = "Emitter2"
+    emitter = "Emitter1"
     df_pl = df_pl.filter(pl.col("emitter") == emitter).drop("emitter")
     columns = [
         'arrival_time', 'azimuth', 'elevation',
