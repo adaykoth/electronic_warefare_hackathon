@@ -9,7 +9,7 @@ import pandas as pd
 from filterpy.kalman import KalmanFilter as FilterPyKF
 
 class KalmanFilter:
-    def __init__(self, min_measurement_dt, process_noise_std=0.1, meas_noise_std=5.0):
+    def __init__(self, min_measurement_dt, process_noise_std=0.01, meas_noise_std=5.0):
         """
         Initialize Kalman filter for emitter tracking using FilterPy.
         
@@ -28,16 +28,16 @@ class KalmanFilter:
         # Initialize measurement matrix (we only measure position)
         self.kf.H = np.hstack([np.eye(3), np.zeros((3, 3))])
         
-        # Initialize covariance matrices with better values for stationary target
+        # Initialize covariance matrices with values for slow-moving target
         self.kf.P = np.eye(6)
-        self.kf.P[0:3, 0:3] *= 100.0   # larger initial position uncertainty
-        self.kf.P[3:6, 3:6] *= 0.001   # very small initial velocity uncertainty
+        self.kf.P[0:3, 0:3] *= 100.0    # High initial position uncertainty
+        self.kf.P[3:6, 3:6] *= 0.00001  # Even lower initial velocity uncertainty
         
         # Store noise parameters
         self.process_noise_std = process_noise_std
         self.meas_noise_std = meas_noise_std
         
-        # Measurement noise
+        # Measurement noise - increased to trust measurements less
         self.kf.R = np.eye(3) * (meas_noise_std ** 2)
         
         # Initialize state to zero
@@ -46,6 +46,9 @@ class KalmanFilter:
         # Store transformation parameters
         self.ref_ecef = None
         self.ref_lla = None
+        
+        # Add velocity limits
+        self.max_velocity = 10.0  # Maximum allowed velocity in m/s
 
     def setup_coordinates(self, ref_lat, ref_lon, ref_alt):
         """Setup coordinate transformation parameters."""
@@ -154,19 +157,19 @@ class KalmanFilter:
         return pd.DataFrame(results).set_index('timestamp')
 
     def predict(self, dt):
-        """Predict step with improved noise model for stationary target"""
+        """Predict step with improved noise model for slow-moving target"""
         # Update state transition matrix
         self.kf.F[0:3, 3:6] = dt * np.eye(3)
         
         # Update process noise with different scales for position and velocity
         q = self.process_noise_std ** 2
-        pos_noise = 0.1   # reduced position process noise (m²)
-        vel_noise = q     # velocity process noise (m²/s⁴)
+        pos_noise = 0.001     # extremely small position process noise (m²)
+        vel_noise = 0.000001  # even smaller velocity process noise (m²/s⁴)
         
         # Build process noise matrix with time scaling
         self.kf.Q = np.zeros((6, 6))
-        self.kf.Q[0:3, 0:3] = pos_noise * dt * np.eye(3)           # position noise scales with dt
-        self.kf.Q[3:6, 3:6] = vel_noise * dt * dt * np.eye(3)      # velocity noise scales with dt²
+        self.kf.Q[0:3, 0:3] = pos_noise * dt * np.eye(3)
+        self.kf.Q[3:6, 3:6] = vel_noise * dt * dt * np.eye(3)
         
         self.kf.predict()
 
@@ -222,11 +225,11 @@ def main():
     print("Input DataFrame:")
     print(df)
     
-    # Initialize Kalman filter with better parameters for stationary target
+    # Initialize Kalman filter with better parameters for slow-moving target
     kf = KalmanFilter(
-        min_measurement_dt=1,      # minimum time between measurements in seconds
-        process_noise_std=0.1,     # much lower process noise for stationary target
-        meas_noise_std=5.0         # measurement noise (5 meters std dev)
+        min_measurement_dt=0.1,     # minimum time between measurements in seconds
+        process_noise_std=0.01,     # much lower process noise for slow movement
+        meas_noise_std=10.0         # slightly increased measurement noise
     )
     
     # Setup coordinate system using first sensor position as reference
