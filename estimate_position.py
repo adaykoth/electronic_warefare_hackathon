@@ -80,6 +80,51 @@ def compute_emitter_enu(row, ref_lat, ref_lon, ref_alt):
         ref_lat, ref_lon, ref_alt
     ))
 
+def perform_checks_and_comparisons(df, delta=1000):
+    """
+    Process the input data file to compute sensor intersections and emitter coordinates,
+    and then compare the estimated emitter position with the original.
+
+    Parameters:
+        file_path (str or Path): Path to the input file.
+        emitter (str): The emitter identifier to filter the data.
+        delta (int): The delta parameter used in processing consecutive points.
+    """
+
+    # Use the emitter coordinates from the first row as the ENU reference.
+    first_row = df.iloc[0]
+    ref_lat = first_row['emitter_lat']
+    ref_lon = first_row['emitter_lon']
+    ref_alt = first_row['emitter_alt']
+
+    # Compute intersections from consecutive sensor readings (in ENU).
+    intersection_df = process_consecutive_points(df, ref_lat, ref_lon, ref_alt, delta=delta)
+
+    # Compute emitter ENU coordinates for each sensor reading.
+    emitter_enu = df.apply(lambda row: compute_emitter_enu(row, ref_lat, ref_lon, ref_alt), axis=1)
+    emitter_enu = pd.DataFrame(emitter_enu.tolist(), index=df.index, columns=['E_emitter', 'N_emitter', 'U_emitter'])
+
+    # Final Calculation: Convert Estimated Emitter Position to LLA.
+    estimated_lla = []
+    for idx, row in intersection_df.iterrows():
+        e, n, u = row['E'], row['N'], row['U']
+        x, y, z = enu_to_ecef(e, n, u, ref_lat, ref_lon, ref_alt)
+        lat_est, lon_est, alt_est = ecef_to_lla(x, y, z)
+        estimated_lla.append([lat_est, lon_est, alt_est])
+    estimated_lla = pd.DataFrame(estimated_lla, index=intersection_df.index, columns=['lat_est', 'lon_est', 'alt_est'])
+
+    # Extract the original emitter LLA (assumed constant across readings).
+    original_lla = first_row[['emitter_lat', 'emitter_lon', 'emitter_alt']].to_frame().T
+    original_lla.index = ['Original']
+    
+    # Optionally, return the computed DataFrames for further processing.
+    return {
+        "intersection_df": intersection_df,
+        "emitter_enu": emitter_enu,
+        "estimated_lla": estimated_lla,
+        "original_lla": original_lla
+    }
+
 
 
 if __name__ == "__main__":
@@ -100,41 +145,8 @@ if __name__ == "__main__":
     df = df.to_pandas()
     df.set_index("arrival_time", inplace=True)
 
-    print("Input DataFrame:")
-    print(df)
+    # Perform the computations and comparisons.
+    results = perform_checks_and_comparisons(df, delta=1000)
+    print(results)
+    
 
-    # Use the emitter coordinates from the first row as the ENU reference.
-    first_row = df.iloc[0]
-    ref_lat = first_row['emitter_lat']
-    ref_lon = first_row['emitter_lon']
-    ref_alt = first_row['emitter_alt']
-
-    # Compute intersections from consecutive sensor readings (in ENU).
-    intersection_df = process_consecutive_points(df, ref_lat, ref_lon, ref_alt, delta=1000)
-    print("\nIntersections (ENU):")
-    print(intersection_df)
-
-    # Compute emitter ENU coordinates for each sensor reading.
-    emitter_enu = df.apply(lambda row: compute_emitter_enu(row, ref_lat, ref_lon, ref_alt), axis=1)
-    emitter_enu = pd.DataFrame(emitter_enu.tolist(), index=df.index, columns=['E_emitter', 'N_emitter', 'U_emitter'])
-    print("\nEmitter ENU coordinates:")
-    print(emitter_enu)
-
-    # --- Final Calculation: Convert Estimated Emitter Position to LLA ---
-    # For each triangulated intersection (in ENU), first convert to ECEF, then to LLA.
-    estimated_lla = []
-    for idx, row in intersection_df.iterrows():
-        e, n, u = row['E'], row['N'], row['U']
-        x, y, z = enu_to_ecef(e, n, u, ref_lat, ref_lon, ref_alt)
-        lat_est, lon_est, alt_est = ecef_to_lla(x, y, z)
-        estimated_lla.append([lat_est, lon_est, alt_est])
-    estimated_lla = pd.DataFrame(estimated_lla, index=intersection_df.index, columns=['lat_est', 'lon_est', 'alt_est'])
-    print("\nEstimated emitter LLA (from triangulation):")
-    print(estimated_lla)
-
-    # For comparison, extract the original emitter LLA (they are in the input data, in degrees and meters).
-    # We assume the original emitter LLA remains constant.
-    original_lla = first_row[['emitter_lat', 'emitter_lon', 'emitter_alt']].to_frame().T
-    original_lla.index = ['Original']
-    print("\nOriginal emitter LLA:")
-    print(original_lla)
