@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "filterpy>=1.4.5",
     "matplotlib>=3.10.0",
     "pandas>=2.2.3",
     "plotly>=6.0.0",

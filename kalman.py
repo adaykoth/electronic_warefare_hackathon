@@ -1,5 +1,5 @@
 import numpy as np
-from compute_distance import compute_emitter_position
+from estimate_position import compute_emitter_position
 import sys
 from geometry import (
     lla_to_ecef, ecef_to_lla, lla_to_enu,
@@ -34,7 +34,7 @@ class KalmanFilter:
         # Initialize covariance matrices
         self.kf.P = np.eye(6)
         self.kf.P[0:3, 0:3] *= 100.0  # moderate initial position uncertainty
-        self.kf.P[3:6, 3:6] *= 0.01   # very low initial velocity uncertainty
+        self.kf.P[3:6, 3:6] *= 0.01   # very low initial velocity uncertainty (nearly stationary)
         
         # Process noise
         q = process_noise_std ** 2
@@ -112,10 +112,16 @@ class KalmanFilter:
             
             try:
                 # Get position estimate in ENU
-                E_meas = compute_emitter_position(
+                position_estimates = compute_emitter_position(
                     s1, u1, prev_row['amplitude'],
                     s2, u2, row['amplitude']
                 )
+                
+                # Only use geometric estimate
+                if position_estimates['geometric'] is not None:
+                    E_meas = position_estimates['geometric']
+                else:
+                    raise ValueError("No valid geometric position estimate available")
                 
                 # Initialize state with first valid measurement
                 if not first_valid_found:
@@ -192,6 +198,8 @@ class KalmanFilter:
 def main():
     from pathlib import Path
     from parse_data import load_window
+    import matplotlib.pyplot as plt
+    import numpy as np
     
     # Load data
     if len(sys.argv) < 2:
@@ -222,12 +230,38 @@ def main():
     print("Input DataFrame:")
     print(df)
     
+    # Calculate and plot time differences
+    time_diffs = pd.Series(df.index).diff() / 1e9  # Convert nanoseconds to seconds
+    
+    plt.figure(figsize=(12, 6))
+    plt.subplot(211)
+    plt.plot(df.index[1:], time_diffs[1:], 'b.')
+    plt.axhline(y=time_diffs[1:].mean(), color='r', linestyle='--', 
+                label=f'Mean: {time_diffs[1:].mean():.3f}s')
+    plt.ylabel('Time Difference (seconds)')
+    plt.title('Time Differences Between Consecutive Measurements')
+    plt.grid(True)
+    plt.legend()
+
+    plt.subplot(212)
+    plt.hist(time_diffs[1:], bins=50)
+    plt.xlabel('Time Difference (seconds)')
+    plt.ylabel('Count')
+    plt.title('Histogram of Time Differences')
+    plt.grid(True)
+    
+    plt.tight_layout()
+    plt.show()
+
+    print("\nTime difference statistics (seconds):")
+    print(time_diffs[1:].describe())
+    
     # Initialize Kalman filter with appropriate time scales
     kf = KalmanFilter(
-        dt=4.0,                # nominal time step in seconds
-        min_measurement_dt=10, # minimum time between measurements in seconds
-        process_noise_std=0.01, # very low process noise for stationary target
-        meas_noise_std=5.0     # measurement noise (position std dev in meters)
+        dt=.5,                # nominal time step in seconds
+        min_measurement_dt=0.5, # minimum time between measurements in seconds
+        process_noise_std=1.0,  # small process noise for mostly stationary target
+        meas_noise_std=10.0    # reasonable measurement noise (10 meters std dev)
     )
     
     # Setup coordinate system using first sensor position as reference
@@ -273,8 +307,6 @@ def main():
     
     # Optional: Plot results
     try:
-        import matplotlib.pyplot as plt
-        
         # Position plots
         plt.figure(figsize=(12, 12))
         
