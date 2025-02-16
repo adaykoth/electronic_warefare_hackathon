@@ -214,8 +214,10 @@ def main():
         'arrival_time', 'azimuth', 'elevation', 'amplitude',
         'sensor_lat', 'sensor_lon', 'sensor_alt', 
         'sensor_yaw', 'sensor_pitch', 'sensor_roll', 
-        'emitter_lat', 'emitter_lon', 'emitter_alt',
-        'emitter'  # Keep the emitter column
+        #'emitter_lat', 
+        #'emitter_lon', 
+        #'emitter_alt',
+        'label'  # Keep the emitter column
     ]
     df = df.select(columns_to_keep)
     
