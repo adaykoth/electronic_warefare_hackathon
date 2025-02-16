@@ -170,6 +170,9 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# mac os 
+.DS_Store
+
 # hackathon data
 *.ipc
 *.png 
