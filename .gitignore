@@ -176,3 +176,4 @@ cython_debug/
 # hackathon data
 *.ipc
 *.png 
+*.html
