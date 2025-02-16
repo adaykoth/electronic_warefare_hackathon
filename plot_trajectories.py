@@ -128,6 +128,8 @@ def plot_trajectories(df, ray_length=1000, ray_interval=1000):
         ),
         title="Sensor & Emitter Trajectories with Direction Rays"
     )
+
+    fig.write_html("trajectory_for_nic.html")
     fig.show()
 
 
@@ -149,4 +151,4 @@ if __name__ == "__main__":
     df.set_index("arrival_time", inplace=True)
 
     df = compute_global_vectors_enu(df)
-    plot_trajectories(df, ray_length=50000, ray_interval=1000)
+    plot_trajectories(df, ray_length=70000, ray_interval=5000)
