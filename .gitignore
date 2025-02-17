@@ -177,4 +177,4 @@ cython_debug/
 *.ipc
 *.png 
 *.zip
-*.htmlcov
+*.html
