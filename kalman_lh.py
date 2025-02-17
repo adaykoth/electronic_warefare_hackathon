@@ -8,6 +8,9 @@ from geometry import (
 import pandas as pd
 from filterpy.kalman import KalmanFilter as FilterPyKF
 
+import pyarrow as pa
+import pyarrow.ipc as ipc
+
 class KalmanFilter:
     def __init__(self, min_measurement_dt, meas_noise_std=5.0):
         """
@@ -209,12 +212,10 @@ def main():
     from pathlib import Path
     from parse_data import load_window
     
-    # Ensure a data file is provided
-    if len(sys.argv) < 2:
-        print("Usage: python kalman.py <data_file>")
-        return
         
     data_file = Path(sys.argv[1])
+    output_file = Path(sys.argv[2])
+
     df = load_window(data_file)
     
     # Select required columns including 'label'
@@ -256,9 +257,13 @@ def main():
         final_results = pd.concat(results_dict.values())
         final_results.sort_index(inplace=True)
         print("\nConcatenated Results Sorted by arrival_time:")
-        print(final_results.head(40))
-    else:
-        print("No results obtained.")
+        print(final_results)
+
+        table = pa.Table.from_pandas(final_results)
+        with pa.OSFile(str(output_file), "wb") as sink:
+            with ipc.RecordBatchFileWriter(sink, table.schema) as writer:
+                writer.write_table(table)
+        print(f"Clustered data saved as IPC file to {output_file}")
     
 if __name__ == "__main__":
     main()
